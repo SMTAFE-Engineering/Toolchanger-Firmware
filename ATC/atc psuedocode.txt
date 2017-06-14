@@ -1,0 +1,427 @@
+=================================================================================================================
+
+----------------
+global variables
+----------------
+
+variable "Home" as boolean
+//sensor input
+//if the pin(?) corresponding to home can be found, this will be true, otherwise false
+
+variable "CurrentPosition" as integer usually between 1 and 8
+//default: irrelevant?
+//merely tells us which slot id is currently facing the cnc machine
+
+variable "ToolExists" as boolean
+//sensor input
+//if a tool can be found in the current position, this will be true, otherwise false
+
+variable "ToolInCNC" as boolean
+//sensor imput
+//this boolean data is requested from the CNC, simply asking if a tool is loaded or not
+
+variable "LastLoaded" as integer
+//default set 0 on startup to reflect unknown
+//after loading a tool, the current position is saved here to remember where to put the tool back
+
+variable "Stock" as a list of 8 booleans
+//defined by stocktake, which is run on startup
+//each item corresponds to the tool slots in order allowing the machine to know where any empty slots are
+//each list item will be true if a tool should be in that position, otherwise false
+
+variable "ATCEngaged" as boolean
+//sensor input
+//indicates if the ATC is in the necessary position to engage with the CNC
+
+=================================================================================================================
+
+------
+homing
+------
+
+if "ATCEngaged" = false {
+|
+|create error message "atc is not engaged" and abort load tool }
+|
+else { nothing }
+
+loop: while "Home" is not true {
+|
+|run: rotate, "clockwise" "1" }
+
+set variable "CurrentPosition" to //TBA value, but most likely 1
+
+=================================================================================================================
+
+---------
+stocktake "FindEmptySlot"
+---------
+
+variable required: FindEmptySlot; boolean value
+//determines if LastLoaded will be changed or not
+
+set variable "n" as 0
+
+loop: until n = 8 {
+|
+|run: rotate; "clockwise" "1"
+|set variable "Stock" list position "CurrentPosition" as equal to "ToolExists" //see global variables
+|set variable "n" as "n + 1" }
+|
+|if "ToolExists" is false & "FindEmptySlot" is true {
+||
+||set variable "LastLoaded" to "CurrentPosition"
+||
+|else { nothing } }
+
+|if "LastLoaded" = 0 & if "ToolInCNC" = true {
+|
+| create error message: "atc is full, cnc cannot be unloaded"
+|
+else { nothing}
+
+//by using CurrentPosition, the start point of the stocktake should be irrelevant
+
+=================================================================================================================
+
+-----------
+rotate path "EndPosition"
+-----------
+
+//calculates the path from start to end as a rotation and distance
+
+variable required: CurrentPosition; this is a global variable, not passed
+
+set variable "StartPosition" as equal to "CurrentPosition"
+//not sure if this step is necessary but it makes sense to do so
+
+variable required: EndPosition
+variable stored as EndPosition
+//see no reason not to keep this name?
+
+//now to calculate which rotation is the shortest path
+
+if "StartPosition" > "EndPosition" {
+|
+|StartPosition - EndPosition = Down
+|EndPosition + 8 - StartPosition = Up }
+|
+else { //ie "EndPosition" > "StartPosition"
+|
+|EndPosition - StartPosition = Up
+|StartPosition + 8 - EndPosition = Down }
+
+if "Down" < "Up" {
+|
+|set variable: PathDirection = "anticlockwise"
+|set variable: PathDistance = "Down" }
+|
+else { //ie "Up" =< "Down"
+|
+|set variable: PathDirection = "clockwise"
+|set variable: PathDistance = "Up" }
+
+run: rotate, "PathDirection" "PathDistance"
+
+=================================================================================================================
+
+------
+rotate "direction" "distance"
+------
+
+variable required: direction of rotation
+variable stored as "direction": string, "clockwise" or "anticlockwise"
+//direction does not necessarily need to be a string, this might change
+
+variable required: how many times to rotate
+variable stored as "distance": integer, must be positive
+
+set variable "n" as 0
+
+loop: until n = "distance" {
+|
+|[instructs motor to rotate 360 degrees in the desired "direction"]
+|
+|if "direction" equals "clockwise" {
+||
+||set variable "CurrentPosition" as "CurrentPosition + 1" }
+||
+|else {
+||
+||set variable "CurrentPosition" as "CurrentPosition - 1" } }
+|
+|set variable n = n + 1
+
+=================================================================================================================
+
+--------------
+engage drawbar
+--------------
+
+command the drawbar to turn on and stay on
+
+=================================================================================================================
+
+-----------------
+disengage drawbar
+-----------------
+
+command the drawbar to turn off
+
+=================================================================================================================
+
+--------------------
+engage tool cylinder
+--------------------
+
+command the tool cyclinder to fully extend, bringing the tool plate up
+
+=================================================================================================================
+
+------------------------
+disengage tool cyclinder
+------------------------
+
+command the tool cylinder to fully retract, bringing the tool plate down
+
+=================================================================================================================
+
+----------
+engage atc
+----------
+
+command pivot cylinder to extend fully allowing the atc to engage with the cnc
+
+=================================================================================================================
+
+-------------
+disengage atc
+-------------
+
+command pivot cylinder to retract fully allowing the atc to disengage from the cnc
+
+=================================================================================================================
+
+--------------
+make cnc ready
+--------------
+
+if [ is cnc in position to engage with atc ] = false }
+|
+| command cnc to move to engage position }
+|
+else { nothing }
+
+=================================================================================================================
+
+---------
+load tool "RequestedPosition"
+---------
+
+variable required: the tool slot id to be loaded
+variable stored as "RequestedPosition": integer, must be 1 - 8
+
+run: make cnc ready
+
+if "ATCEngaged" = false {
+|
+|run: engage atc
+|
+else { nothing }
+
+run: rotate path "RequestedPosition"
+
+//confirm requested tool position does in fact have a tool to proceed
+
+if "ToolExists" = false {
+|
+|create error message "tool is missing" and abort load tool }
+|
+else { nothing }
+
+run: engage tool cyclinder
+
+run: engage drawbar
+
+WAIT A BRIEF PERIOD OF TIME
+
+run: disengage drawbar
+
+//ask cnc if it is in fact holding a tool
+
+if "ToolLoaded" = false { //temporary variable name
+|
+|activate cylinder downward direction ~
+|create error message "load unsuccessful" and abort load tool }
+|
+else { nothing }
+
+run: disengage atc
+
+run: disengage tool cyclinder
+
+//confirm requested tool position is indeed now empty
+
+if "ToolExists" = true {
+|
+|create error message "tool was not loaded" and abort load tool }
+|
+else { nothing }
+
+set variable: "LastLoaded" = "RequestedPosition"
+
+//having loaded a tool, the atc then remembers where it got its last tool from
+//"LastLoaded" will be used in the unloading in case the atc has changed position
+
+set variable: "Stock" list position "CurrentPosition" = "ToolExists"
+
+=================================================================================================================
+
+-----------
+unload tool
+-----------
+
+//variable required: "LastLoaded" but this is global
+
+//confirm LastLoaded tool position is a valid request
+if "LastLoaded" is less than 1 or greater than 8 {
+|
+|if "LastLoaded" = 0 {
+||
+|| create error message: "cannot unload, atc is full"
+||
+|else { nothing}
+|
+|create error message "cannot unload tool" and abort load tool }
+|
+else { nothing }
+//0 is the default value and will remain 0 if stocktake finds no slots
+//checking for other values should not actually be necessary in practice
+
+if "ATCEngaged" = true {
+|
+|run: disengage atc
+|
+else { nothing }
+
+run: rotate path "LastLoaded"
+
+//this will rotate back to the slot the tool was removed from
+
+//confirm requested tool position is in fact empty to proceed
+
+if "ToolExists" = true {
+|
+|create error message "tool slot occupied" and abort }
+|
+else { nothing }
+
+run: make cnc ready
+
+run: engage tool cylinder
+
+run: engage atc
+
+run: disengage tool cyclinder
+
+wait 0.5 seconds
+
+run: engage drawbar
+
+wait till tool cylinder is fully disengaged???
+
+run: disengage drawbar
+
+run: disengage atc //need to find a way to ignore this due to switch
+
+//confirm tool unload successful | don't know what to do with this error
+
+if "ToolInCNC" = true {
+|
+|tell cnc to release draw bar ~ //this may do nothing
+|tell cnc to move away from atc ~
+|activate cylinder downward direction ~
+|create error message "unload unsuccessful" and abort unload tool }
+|
+else { nothing }
+
+//confirm off load tool position does in fact have a tool now
+
+if "ToolExists" = false {
+|
+|create error message "tool was not unloaded" and abort load tool }
+|
+else { nothing }
+//this error should only occur if the cnc did not actually move
+
+set variable: "Stock" list position "CurrentPosition" = "ToolExists"
+
+=================================================================================================================
+
+------
+Switch "RequestedTool"
+------
+
+variable required: the tool slot id to be loaded
+variable stored as "RequestedTool": integer, must be 0 - 8
+
+//confirm requested tool position is a valid request
+
+if "RequestedTool" is less than 0 or greater than 8 {
+|
+|create error message "invalid tool selection" and abort switch }
+|
+else { nothing }
+
+//first check if cnc is loaded, if so an unload is required
+
+if "ToolInCNC" = true {
+|
+|run: unload tool }
+|
+else { nothing }
+
+//now that cnc is definitely unloaded, it can now be loaded
+//if tool id requested is a 0 then only an unload is required
+
+if "RequestedTool" != 0 {
+|
+|run: load tool "RequestedTool"
+|
+else { nothing }
+
+=================================================================================================================
+
+------------
+main program
+------------
+
+//executed on startup
+
+set variable "CurrentPosition" as 0
+set variable "LastLoaded" as 0
+//merely a set up, the current position and the last loaded slot are unknown
+
+//machine must be homed
+run: homing
+
+//check atc for empty slots, as atc will be unable to unload if the atc is already full
+run: stocktake, "true"
+
+//what about asking the user which slot the tool came from? if they care?
+
+await menu command:
+|
+|- manual stocktake ->
+|-- "do you want to find empty slots?" set "input" to true if yes or false if no
+|-- run: stocktake, "input"
+|
+|- change tool -> 
+|-- "enter tool id to be loaded:" set "requested tool id" to input value
+|-- run: switch, "requested tool id"
+|
+|- manual up button -> run: rotate, "clockwise" "1"
+|
+|- manual down button -> run: rotate, "anticlockwise" "1"
+
+=================================================================================================================

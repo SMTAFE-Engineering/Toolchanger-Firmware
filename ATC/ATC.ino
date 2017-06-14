@@ -1,12 +1,13 @@
-boolean homePosition;
 int currentPosition;
-boolean toolExists; // possibily N/A
+boolean homePosition;
 boolean toolInCNC;
-int lastLoaded; // possibly irrelevant
-boolean stock[] = {0,0,0,0,0,0,0,0); // N/A if toolExists is N/A
-boolean ATCEngaged; // possibly N/A
 
-const int motorSpdPin = a;
+int lastLoaded;       // possibly irrelevant
+boolean ATCEngaged;   // possibly N/A
+boolean toolExists;   // possibily N/A
+boolean stock[] = {0,0,0,0,0,0,0,0);
+
+const int motorSpdPin = a;    //PWM to H-Bridge
 const int motorDirPin = b;
 const int pivotCylPin = c;
 const int liftCylPin = d;
