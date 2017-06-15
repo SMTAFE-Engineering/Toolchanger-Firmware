@@ -2,6 +2,10 @@
 #define GENEVA_SENSE_PIN 13
 #define LIFT_CYLINDER_DELAY 5000
 #define PIVOT_CYLINDER_DELAY 10000
+#define MOTOR_SPEED_PIN 1           //PWM to H-Bridge
+#define MOTOR_DIRECTION_PIN 2       //High = Clockwise
+#define PIVOT_CYLINDER_PIN 3
+#define LIFT_CYLINDER_PIN 4
 
 int currentPosition;
 boolean homed = false;
@@ -13,17 +17,12 @@ boolean ATCEngaged;   // possibly N/A
 boolean toolExists;   // possibily N/A
 boolean stock[] = {0,0,0,0,0,0,0,0};
 
-const int motorSpdPin = 1;    //PWM to H-Bridge
-const int motorDirPin = 2;    //High/On is Clockwise
-const int pivotCylPin = 3;
-const int liftCylPin = 4;
-
 void setup() {
   Serial.begin(9600);
-  pinMode(motorSpdPin, OUTPUT);
-  pinMode(motorDirPin, OUTPUT);
-  pinMode(pivotCylPin, OUTPUT);
-  pinMode(liftCylPin, OUTPUT);
+  pinMode(MOTOR_SPEED_PIN, OUTPUT);
+  pinMode(MOTOR_DIRECTION_PIN, OUTPUT);
+  pinMode(PIVOT_CYLINDER_PIN, OUTPUT);
+  pinMode(LIFT_CYLINDER_PIN, OUTPUT);
 
   //toolInCNC = isCNCLoaded();
   if (toolInCNC = true){
@@ -47,11 +46,11 @@ void homing(){
 
 void unloadTool(int reqTool){
   //ask cnc if it's in position and if not make it so
-  digitalWrite(liftCylPin, HIGH);       //ATC:LIFT
+  digitalWrite(LIFT_CYLINDER_PIN, HIGH);       //ATC:LIFT
   delay(LIFT_CYLINDER_DELAY);     
-  digitalWrite(pivotCylPin, HIGH);      //ATC:IN
+  digitalWrite(PIVOT_CYLINDER_PIN, HIGH);      //ATC:IN
   delay(PIVOT_CYLINDER_DELAY);
-  digitalWrite(liftCylPin, LOW);        //ATC:LOWER
+  digitalWrite(LIFT_CYLINDER_PIN, LOW);        //ATC:LOWER
   //small delay here?
   //tell cnc to engage the drawbar      //DRAWBAR:ON
   delay(LIFT_CYLINDER_DELAY);       
@@ -61,23 +60,23 @@ void unloadTool(int reqTool){
     loadTool(reqTool);
   }
   else{ //if reqTool is 0 then there will be no unload, and ATC is finished
-    digitalWrite(pivotCylPin, LOW);
+    digitalWrite(PIVOT_CYLINDER_PIN, LOW);
     delay(PIVOT_CYLINDER_DELAY);        //ATC:OUT
   }
 }
 
 void loadTool(int reqTool){
    //ask cnc if it's in position and if not make it so
-   digitalWrite(pivotCylPin, HIGH);     //ATC:IN
+   digitalWrite(PIVOT_CYLINDER_PIN, HIGH);     //ATC:IN
    delay(PIVOT_CYLINDER_DELAY);
    rotatePath(reqTool);                 //ATC:ROTATE
    //tell cnc to engage the drawbar     //DRAWBAR:ON
-   digitalWrite(liftCylPin, HIGH);      //ATC:LIFT
+   digitalWrite(LIFT_CYLINDER_PIN, HIGH);      //ATC:LIFT
    delay(LIFT_CYLINDER_DELAY);
    //tell cnc to disengage the drawbar  //DRAWBAR:OFF
-   digitalWrite(pivotCylPin, LOW);      //ATC:OUT
+   digitalWrite(PIVOT_CYLINDER_PIN, LOW);      //ATC:OUT
    delay(PIVOT_CYLINDER_DELAY);
-   digitalWrite(liftCylPin, LOW);       //ATC:LOWER
+   digitalWrite(LIFT_CYLINDER_PIN, LOW);       //ATC:LOWER
    delay(LIFT_CYLINDER_DELAY);
 }
 
@@ -119,13 +118,13 @@ void rotateMotor(int rotDir, int rotDist){
   //rotDir: which direction the motor needs to turn the geneva
 
   if (rotDir == 1){    //clockwise
-    digitalWrite(motorDirPin, HIGH);
+    digitalWrite(MOTOR_DIRECTION_PIN, HIGH);
   }
   else{             //anticlockwise
-    digitalWrite(motorDirPin, LOW);
+    digitalWrite(MOTOR_DIRECTION_PIN, LOW);
   }
 
-  digitalWrite(motorSpdPin, HIGH);
+  digitalWrite(MOTOR_SPEED_PIN, HIGH);
   delay(1000);
   //this delay prevents the upcoming code from prematurely counting a successful loop due to detecting the sensor immediately
 
@@ -156,6 +155,6 @@ void rotateMotor(int rotDir, int rotDist){
     }
   }
   
-  digitalWrite(motorSpdPin, LOW);
+  digitalWrite(MOTOR_SPEED_PIN, LOW);
 }
 
