@@ -7,6 +7,8 @@
 #define MOTOR_DIRECTION_PIN 8       //High = Clockwise
 #define PIVOT_CYLINDER_PIN 7
 #define LIFT_CYLINDER_PIN 6
+#define CNC_DRAWBAR_PIN 4
+#define CNC_LOADED_PIN 3
 
 #define TEST_PIN 13
 int incomingByte;
@@ -29,8 +31,12 @@ void setup() {
   pinMode(PIVOT_CYLINDER_PIN, OUTPUT);
   pinMode(LIFT_CYLINDER_PIN, OUTPUT);
   pinMode(TEST_PIN, OUTPUT);
+  pinMode(CNC_DRAWBAR_PIN, OUTPUT);
   pinMode(GENEVA_SENSE_PIN, INPUT);
-  //toolInCNC = isCNCLoaded();
+  pinMode(CNC_LOADED_PIN, INPUT);
+
+  boolean toolInCNC = false;
+  toolInCNC = digitalRead(CNC_LOADED_PIN);
   if (toolInCNC = true){
     //insert error message that pauses the software until dealt with
   }
@@ -133,7 +139,7 @@ void loop() {
         }
         case '1':{
           currentPosition = 1;
-          Serial.println("Tool Position");
+          Serial.print("Tool Position ");
           Serial.println(currentPosition);
           break;
         }
@@ -186,21 +192,36 @@ void switchTool(int reqTool){
 
 void unloadTool(int reqTool){
   //ask cnc if it's in position and if not make it so
-  digitalWrite(LIFT_CYLINDER_PIN, HIGH);     //ATC:LIFT
-  delay(LIFT_CYLINDER_DELAY);     
-  digitalWrite(PIVOT_CYLINDER_PIN, HIGH);    //ATC:IN
+  Serial.print("UNLOADING TOOL ");
+  Serial.println(currentPosition);
+  Serial.println("Tool Up Start");
+  digitalWrite(LIFT_CYLINDER_PIN, HIGH);       //ATC:LIFT
+  delay(LIFT_CYLINDER_DELAY);
+  Serial.println("Tool Up Finished");
+  Serial.println("ATC Pivot Engaging");
+  digitalWrite(PIVOT_CYLINDER_PIN, HIGH);      //ATC:IN
   delay(PIVOT_CYLINDER_DELAY);
-  digitalWrite(LIFT_CYLINDER_PIN, LOW);     //ATC:LOWER
-  //small delay here?
-  //tell cnc to engage the drawbar          //DRAWBAR:ON
-  delay(LIFT_CYLINDER_DELAY);       
-  //tell cnc to disengage the drawbar       //DRAWBAR:OFF
+  Serial.println("ATC Engaged");
+  Serial.println("Tool Down Starting");
+  digitalWrite(LIFT_CYLINDER_PIN, LOW);        //ATC:LOWER
+  delay(1000);
+  Serial.println("Drawbar releasing tool");
+  digitalWrite(CNC_DRAWBAR_PIN, HIGH);         //DRAWBAR:ON
+  delay(LIFT_CYLINDER_DELAY);
+  Serial.println("Tool Down Finished");
+  digitalWrite(CNC_DRAWBAR_PIN, LOW);          //DRAWBAR:OFF
+  Serial.println("Drawbar disengaged");
 
   //if required tool is ID 0 then only an unload is required, thus the ATC will not want to remain engaged
   if(reqTool == 0){
+    Serial.println("ATC Pivot Disengaging");
     digitalWrite(PIVOT_CYLINDER_PIN, LOW);
-    delay(PIVOT_CYLINDER_DELAY);            //ATC:OUT
+    delay(PIVOT_CYLINDER_DELAY);               //ATC:OUT
+    Serial.println("ATC Disengaged");
   }
+  toolInCNC = digitalRead(CNC_LOADED_PIN);
+  toolInCNC = false; //manual write for testing
+  Serial.println("Finished Unloading Tool");
 }
 
 void loadTool(int reqTool){
@@ -208,14 +229,16 @@ void loadTool(int reqTool){
    digitalWrite(PIVOT_CYLINDER_PIN, HIGH);     //ATC:IN
    delay(PIVOT_CYLINDER_DELAY);
    rotatePath(reqTool);                        //ATC:ROTATE
-   //tell cnc to engage the drawbar            //DRAWBAR:ON
+   digitalWrite(CNC_DRAWBAR_PIN, HIGH);        //DRAWBAR:ON
    digitalWrite(LIFT_CYLINDER_PIN, HIGH);      //ATC:LIFT
    delay(LIFT_CYLINDER_DELAY);
-   //tell cnc to disengage the drawbar         //DRAWBAR:OFF
+   digitalWrite(CNC_DRAWBAR_PIN, LOW);         //DRAWBAR:OFF
    digitalWrite(PIVOT_CYLINDER_PIN, LOW);      //ATC:OUT
    delay(PIVOT_CYLINDER_DELAY);
    digitalWrite(LIFT_CYLINDER_PIN, LOW);       //ATC:LOWER
    delay(LIFT_CYLINDER_DELAY);
+  toolInCNC = digitalRead(CNC_LOADED_PIN);
+  toolInCNC = true; //manual write for testing
 }
 
 void rotatePath(int endPos){
@@ -297,6 +320,7 @@ void incrementCurrentPosition(int dir){
   if (currentPosition == 0){
     currentPosition = 8;
   }
+  Serial.print("Tool Position ");
   Serial.println(currentPosition);
   //loop constraint, when position becomes 0 or 9 it is correctly adjusted to 8 or 1
 }
