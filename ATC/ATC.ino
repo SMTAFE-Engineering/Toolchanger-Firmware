@@ -51,8 +51,6 @@ void loop() {
     // read the oldest byte in the serial buffer:
     incomingByte = Serial.read();
 
-    int b = 0; //blinky light for testing, used in loop below
-
     int requestedToolID = 0;
 
     if (testModeActive == 0){
@@ -100,7 +98,6 @@ void loop() {
           break;
         }
       }
-      b = requestedToolID;
     }
     else{
       //test menu
@@ -111,40 +108,36 @@ void loop() {
           break;
         }
         case 'U':{
-          b = 2;
+          digitalWrite(LIFT_CYLINDER_PIN, HIGH);
+          delay(LIFT_CYLINDER_DELAY);
           break;
         }
         case 'D':{
-           b = 3;
+          digitalWrite(LIFT_CYLINDER_PIN, LOW);
+          delay(LIFT_CYLINDER_DELAY);
            break;
         }
         case 'I':{
-          b = 4;
+          digitalWrite(PIVOT_CYLINDER_PIN, HIGH);
+          delay(PIVOT_CYLINDER_DELAY);
           break;
           }
         case 'O':{
-          b = 5;
+          digitalWrite(PIVOT_CYLINDER_PIN, LOW);
+          delay(PIVOT_CYLINDER_DELAY);
           break;
         }
         case 'R':{
-          b = 6;
+          rotateGenevaClockwiseOnce();
           break;
         }
         case 'L':{
-          b = 7;
+          rotateGenevaAnticlockwiseOnce();
           break;
         }
       }
     }
-
-    if (b != 0){
-      for (int n = 0; n != b; n++){
-        digitalWrite(TEST_PIN_A, HIGH);
-        delay(250);
-        digitalWrite(TEST_PIN_A, LOW);
-        delay(250);
-      }  
-    }
+    switchTool(requestedToolID);
   }
 }
 
