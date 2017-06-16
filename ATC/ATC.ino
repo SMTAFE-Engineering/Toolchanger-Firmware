@@ -3,13 +3,12 @@
 
 #define HOME_SENSE_PIN 12
 #define GENEVA_SENSE_PIN 14
-#define MOTOR_SPEED_PIN 1           //PWM to H-Bridge
-#define MOTOR_DIRECTION_PIN 2       //High = Clockwise
-#define PIVOT_CYLINDER_PIN 3
-#define LIFT_CYLINDER_PIN 4
+#define MOTOR_SPEED_PIN 9           //PWM to H-Bridge
+#define MOTOR_DIRECTION_PIN 8       //High = Clockwise
+#define PIVOT_CYLINDER_PIN 7
+#define LIFT_CYLINDER_PIN 6
 
-#define TEST_PIN_A 10
-#define TEST_PIN_B 13
+#define TEST_PIN 13
 int incomingByte;
 int testModeActive = 0;
 
@@ -29,11 +28,8 @@ void setup() {
   pinMode(MOTOR_DIRECTION_PIN, OUTPUT);
   pinMode(PIVOT_CYLINDER_PIN, OUTPUT);
   pinMode(LIFT_CYLINDER_PIN, OUTPUT);
-  
-  pinMode(TEST_PIN_A, OUTPUT);
-  pinMode(TEST_PIN_B, OUTPUT);
-  digitalWrite(TEST_PIN_B, LOW);
-  
+  pinMode(TEST_PIN, OUTPUT);
+  pinMode(GENEVA_SENSE_PIN, INPUT);
   //toolInCNC = isCNCLoaded();
   if (toolInCNC = true){
     //insert error message that pauses the software until dealt with
@@ -51,14 +47,14 @@ void loop() {
     // read the oldest byte in the serial buffer:
     incomingByte = Serial.read();
 
-    int requestedToolID = 0;
+    int requestedToolID = 99;
 
     if (testModeActive == 0){
       //default menu
       switch(incomingByte){
         case 'T':{
           testModeActive = 1;
-          digitalWrite(TEST_PIN_B, HIGH);
+          digitalWrite(TEST_PIN, HIGH);
           break;
         }
         case '0':{
@@ -104,7 +100,7 @@ void loop() {
       switch(incomingByte){
         case 'X':{
           testModeActive = 0;
-          digitalWrite(TEST_PIN_B, LOW);
+          digitalWrite(TEST_PIN, LOW);
           break;
         }
         case 'U':{
@@ -135,9 +131,17 @@ void loop() {
           rotateGenevaAnticlockwiseOnce();
           break;
         }
+        case '1':{
+          currentPosition = 1;
+          Serial.println("Tool Position");
+          Serial.println(currentPosition);
+          break;
+        }
       }
     }
-    switchTool(requestedToolID);
+    if (requestedToolID >= 0 && requestedToolID <= 8){
+      switchTool(requestedToolID);
+    }
   }
 }
 
@@ -175,7 +179,9 @@ void switchTool(int reqTool){
   if (toolInCNC == true){
     unloadTool(reqTool);
   }
-  loadTool(reqTool);
+  if (reqTool != 0){
+    loadTool(reqTool);
+  }
 }
 
 void unloadTool(int reqTool){
@@ -256,37 +262,42 @@ void rotateMotor(int rotDir, int rotDist){
     digitalWrite(MOTOR_DIRECTION_PIN, LOW);
   }
 
-  digitalWrite(MOTOR_SPEED_PIN, HIGH);
-  delay(1000);
-  //this delay prevents the upcoming code from prematurely counting a successful loop due to detecting the sensor immediately
-
+  digitalWrite(MOTOR_SPEED_PIN, HIGH);                        //turn motor on
   int n = 0;
-  while (n != rotDist){
-    if (genevaLocked == true){
-      n++;
-      if (rotDir == 1){ //if Direction clockwise position up 1
-        currentPosition++;
+  while (n != rotDist){                                       //loop until n = rotDir
+    genevaLocked = digitalRead(GENEVA_SENSE_PIN);
+    /*if (genevaLocked == true && n == 0){                      //if can see sensor but still on first lap
+      while (genevaLocked == true){                           //loop until can't see the sensor
+        genevaLocked = digitalRead(GENEVA_SENSE_PIN);         //this prevents incrementing prematurely
       }
-      else{ //rotDir != 1: if direction anticlockwise position down 1
-        currentPosition--;
+    }*/
+    if (genevaLocked == true){                                //if can see sensor (any other time)
+      while (genevaLocked == true && (n + 1) != rotDist){     //loop until can't see sensor UNLESS this is last lap
+        genevaLocked = digitalRead(GENEVA_SENSE_PIN);
+        Serial.println("Waiting to clear sensor");
       }
-      
-      if (currentPosition == 9){
-      currentPosition = 1; 
-      }
-      if (currentPosition == 0){
-      currentPosition = 8;
-      }
-      //loop constraint, when position becomes 0 or 9 it is correctly adjusted to 8 or 1
-      
-      if (n != rotDist){
-        delay(1000);
-      }
-      //delay is to prevent counting more than once each time the sensor is detected
-      //the if statement prevents the motor overshooting on the final loop because the motor stop is outside the loop
+      n++;                                                    //having gone past sensor this counts as one lap
+      incrementCurrentPosition(rotDir);                       //increment the current tool position accordingly
+      Serial.println("Lap complete");
     }
   }
-  
-  digitalWrite(MOTOR_SPEED_PIN, LOW);
+  digitalWrite(MOTOR_SPEED_PIN, LOW);                         //turn motor off
+}
+
+void incrementCurrentPosition(int dir){
+  if (dir == 1){
+    currentPosition++;
+  }
+  else{ //dir == 0
+    currentPosition--;
+  }
+  if (currentPosition == 9){
+    currentPosition = 1;
+  }
+  if (currentPosition == 0){
+    currentPosition = 8;
+  }
+  Serial.println(currentPosition);
+  //loop constraint, when position becomes 0 or 9 it is correctly adjusted to 8 or 1
 }
 
