@@ -1,6 +1,12 @@
 #define LIFT_CYLINDER_DELAY 5000
 #define PIVOT_CYLINDER_DELAY 10000
 
+#define TOOL_UP_MESSAGE "Lifting tool"
+#define TOOL_DOWN_MESSAGE "Lowering tool"
+#define ATC_IN_MESSAGE "Engaging ATC"
+#define ATC_OUT_MESSAGE "Disengaging ATC"
+#define STEP_DONE_MESSAGE "Step Complete"
+
 #define HOME_SENSE_PIN 12
 #define GENEVA_SENSE_PIN 14
 #define MOTOR_SPEED_PIN 9           //PWM to H-Bridge
@@ -18,6 +24,11 @@ int currentPosition;
 boolean homed = false;
 boolean toolInCNC = false;
 boolean genevaLocked = true;
+boolean withDrawbar = true;
+boolean withoutDrawbar = false;
+boolean automateDrawbar = true;
+int moveClockwise = 1;
+int moveAnticlockwise = 0;
 
 int lastLoaded;       // possibly irrelevant
 boolean ATCEngaged;   // possibly N/A
@@ -56,6 +67,7 @@ void loop() {
     int requestedToolID = 99;
 
     if (testModeActive == 0){
+      Serial.println("Enter Desired Tool");
       //default menu
       switch(incomingByte){
         case 'T':{
@@ -102,6 +114,19 @@ void loop() {
       }
     }
     else{
+      Serial.println("Test Menu");
+      Serial.println("1 - Set Current Position to 1");
+      Serial.println("U / D - Move Lift Cylinder Up or Down");
+      Serial.println("I / O - Move ATC In or Out");
+      Serial.println("R / L - Rotate Tool Clockwise or Anticlockwise Once");
+      Serial.print("M - Toggle drawbar automation for testing, currently: ");
+      if (automateDrawbar == true){
+        Serial.println("on");
+      }
+      else{
+        Serial.println("off");
+      }
+      Serial.println("X - Leave Test Menu");
       //test menu
       switch(incomingByte){
         case 'X':{
@@ -110,31 +135,39 @@ void loop() {
           break;
         }
         case 'U':{
-          digitalWrite(LIFT_CYLINDER_PIN, HIGH);
-          delay(LIFT_CYLINDER_DELAY);
+          if (automateDrawbar == true){
+            moveToolUp(withDrawbar);
+          }
+          else{
+            moveToolUp(withoutDrawbar);
+          }
           break;
         }
         case 'D':{
-          digitalWrite(LIFT_CYLINDER_PIN, LOW);
-          delay(LIFT_CYLINDER_DELAY);
-           break;
+          if (automateDrawbar == true){
+            moveToolUp(withDrawbar);
+          }
+          else{
+            moveToolUp(withoutDrawbar);
+          }
+          break;
         }
         case 'I':{
-          digitalWrite(PIVOT_CYLINDER_PIN, HIGH);
-          delay(PIVOT_CYLINDER_DELAY);
+          moveATCIn();
           break;
           }
         case 'O':{
-          digitalWrite(PIVOT_CYLINDER_PIN, LOW);
-          delay(PIVOT_CYLINDER_DELAY);
+          moveATCOut();
           break;
         }
         case 'R':{
           rotateGenevaClockwiseOnce();
+          Serial.println(STEP_DONE_MESSAGE);
           break;
         }
         case 'L':{
           rotateGenevaAnticlockwiseOnce();
+          Serial.println(STEP_DONE_MESSAGE);
           break;
         }
         case '1':{
@@ -143,9 +176,28 @@ void loop() {
           Serial.println(currentPosition);
           break;
         }
+        case 'M':{
+          if (automateDrawbar == true){
+            automateDrawbar = false;
+            Serial.println("Drawbar is now set to manual");
+          }
+          else{
+            automateDrawbar = true;
+            Serial.println("Drawbar is now set to automatic");
+          }
+          Serial.println("Drawbar manual only works during testing. Drawbar is always automatic during normal operations.");
+        }
       }
     }
     if (requestedToolID >= 0 && requestedToolID <= 8){
+      if (requestedToolID != 0){
+        Serial.print("Tool ID");
+        Serial.print(requestedToolID);
+        Serial.println(" requested...");
+      }
+      else{
+        Serial.println("Tool Unload requested...");
+      }
       switchTool(requestedToolID);
     }
   }
@@ -168,16 +220,17 @@ void homing(){
     homed = digitalRead(HOME_SENSE_PIN);
   }
   currentPosition = 1;
+  Serial.println("ATC Homeded to Tool Position 1");
 }
 
 void rotateGenevaClockwiseOnce(){
-  rotateMotor(1,1); 
-  //(clockwise = 1, distance = 1)
+  rotateMotor(moveClockwise,1); 
+  //moveClockwise is a global int variable
 }
 
 void rotateGenevaAnticlockwiseOnce(){
-  rotateMotor(0,1);
-  //(anticlockwise = 0, distance = 1)
+  rotateMotor(moveAnticlockwise,1);
+  //moveAnticlockwise is a global int variable
 }
 
 void switchTool(int reqTool){
@@ -194,49 +247,27 @@ void unloadTool(int reqTool){
   //ask cnc if it's in position and if not make it so
   Serial.print("UNLOADING TOOL ");
   Serial.println(currentPosition);
-  Serial.println("Tool Up Start");
-  digitalWrite(LIFT_CYLINDER_PIN, HIGH);       //ATC:LIFT
-  delay(LIFT_CYLINDER_DELAY);
-  Serial.println("Tool Up Finished");
-  Serial.println("ATC Pivot Engaging");
-  digitalWrite(PIVOT_CYLINDER_PIN, HIGH);      //ATC:IN
-  delay(PIVOT_CYLINDER_DELAY);
-  Serial.println("ATC Engaged");
-  Serial.println("Tool Down Starting");
-  digitalWrite(LIFT_CYLINDER_PIN, LOW);        //ATC:LOWER
-  delay(1000);
-  Serial.println("Drawbar releasing tool");
-  digitalWrite(CNC_DRAWBAR_PIN, HIGH);         //DRAWBAR:ON
-  delay(LIFT_CYLINDER_DELAY);
-  Serial.println("Tool Down Finished");
-  digitalWrite(CNC_DRAWBAR_PIN, LOW);          //DRAWBAR:OFF
-  Serial.println("Drawbar disengaged");
-
-  //if required tool is ID 0 then only an unload is required, thus the ATC will not want to remain engaged
-  if(reqTool == 0){
-    Serial.println("ATC Pivot Disengaging");
-    digitalWrite(PIVOT_CYLINDER_PIN, LOW);
-    delay(PIVOT_CYLINDER_DELAY);               //ATC:OUT
-    Serial.println("ATC Disengaged");
+  moveToolUp(withoutDrawbar);       //lift tool slot up (no drawbar needed)
+  moveATCIn();                      //pivot atc machine in to engage
+  moveToolDown(withDrawbar);        //lower tool slot down using the drawbar to unload the tool
+  if(reqTool == 0){                 //if required tool is ID 0 then only an unload is required
+    moveATCOut();                   //thus pivot atc machine out to disengage
   }
   toolInCNC = digitalRead(CNC_LOADED_PIN);
   toolInCNC = false; //manual write for testing
-  Serial.println("Finished Unloading Tool");
+  Serial.println("TOOL UNLOAD COMPLETE");
 }
 
 void loadTool(int reqTool){
-   //ask cnc if it's in position and if not make it so
-   digitalWrite(PIVOT_CYLINDER_PIN, HIGH);     //ATC:IN
-   delay(PIVOT_CYLINDER_DELAY);
-   rotatePath(reqTool);                        //ATC:ROTATE
-   digitalWrite(CNC_DRAWBAR_PIN, HIGH);        //DRAWBAR:ON
-   digitalWrite(LIFT_CYLINDER_PIN, HIGH);      //ATC:LIFT
-   delay(LIFT_CYLINDER_DELAY);
-   digitalWrite(CNC_DRAWBAR_PIN, LOW);         //DRAWBAR:OFF
-   digitalWrite(PIVOT_CYLINDER_PIN, LOW);      //ATC:OUT
-   delay(PIVOT_CYLINDER_DELAY);
-   digitalWrite(LIFT_CYLINDER_PIN, LOW);       //ATC:LOWER
-   delay(LIFT_CYLINDER_DELAY);
+  //ask cnc if it's in position and if not make it so
+  Serial.print("LOADING TOOL ");
+  Serial.println(reqTool);
+  //code missing: if statement to check if PIVOT_CYCLINDER_PIN is already High
+  moveATCIn();                    //pivot atc machine in to engage (ideally this will be inside an if statement)
+  rotatePath(reqTool);            //rotoate atc via the optimal path to the desired tool
+  moveToolUp(withDrawbar);        //lift tool slot up using the drawbar to load the tool
+  moveATCOut();                   //pivot atc machine out to disengage
+  moveToolDown(withoutDrawbar);   //lower tool slot back down (no drawbar needed)
   toolInCNC = digitalRead(CNC_LOADED_PIN);
   toolInCNC = true; //manual write for testing
 }
@@ -251,6 +282,7 @@ void rotatePath(int endPos){
   int rotDist;
 
   //tool positions are between 1 and 8 and the shortest path needs to be found
+  //up equates to clockwise and down equates to anticlockwise
   if (startPos > endPos){
     down = startPos - endPos;
     up = endPos + 8 - startPos;
@@ -259,14 +291,13 @@ void rotatePath(int endPos){
     up = endPos - startPos;
     down = startPos + 8 - endPos;
   }
-
-  //up equates to clockwise and thus the smaller determines the ideal direction
+  //whichever of up or down is smaller corresponds to the ideal direction to rotate
   if (up < down){
-    rotDir = 1; //clockwise
+    rotDir = moveClockwise; //global int variable
     rotDist = up;
   }
   else{ //ie down < up
-    rotDir = 0; //anticlock
+    rotDir = moveAnticlockwise; //global int variable
     rotDist = down;
   }
   
@@ -278,18 +309,18 @@ void rotateMotor(int rotDir, int rotDist){
   //rotDist: the required number of positions to rotate on the geneva
   //rotDir: which direction the motor needs to turn the geneva
 
-  if (rotDir == 1){    //clockwise
+  if (rotDir == moveClockwise){
     digitalWrite(MOTOR_DIRECTION_PIN, HIGH);
   }
-  else{             //anticlockwise
+  else{    //ie anticlockwise
     digitalWrite(MOTOR_DIRECTION_PIN, LOW);
   }
-
+  Serial.println("Rotating ATC");
   digitalWrite(MOTOR_SPEED_PIN, HIGH);                        //turn motor on
   int n = 0;
   while (n != rotDist){                                       //loop until n = rotDir
     genevaLocked = digitalRead(GENEVA_SENSE_PIN);
-    /*if (genevaLocked == true && n == 0){                      //if can see sensor but still on first lap
+    /*if (genevaLocked == true && n == 0){                    //if can see sensor but still on first lap
       while (genevaLocked == true){                           //loop until can't see the sensor
         genevaLocked = digitalRead(GENEVA_SENSE_PIN);         //this prevents incrementing prematurely
       }
@@ -308,10 +339,10 @@ void rotateMotor(int rotDir, int rotDist){
 }
 
 void incrementCurrentPosition(int dir){
-  if (dir == 1){
+  if (dir == moveClockwise){
     currentPosition++;
   }
-  else{ //dir == 0
+  else{ //ie anticlockwise
     currentPosition--;
   }
   if (currentPosition == 9){
@@ -325,3 +356,43 @@ void incrementCurrentPosition(int dir){
   //loop constraint, when position becomes 0 or 9 it is correctly adjusted to 8 or 1
 }
 
+void moveToolUp(boolean drawbarRequired){
+  if (drawbarRequired == true){
+    digitalWrite(CNC_DRAWBAR_PIN, HIGH);
+  }
+  Serial.println(TOOL_UP_MESSAGE);
+  digitalWrite(LIFT_CYLINDER_PIN, HIGH);
+  delay(LIFT_CYLINDER_DELAY);
+  if (drawbarRequired == true){
+    digitalWrite(CNC_DRAWBAR_PIN, LOW);
+  }
+  Serial.println(STEP_DONE_MESSAGE);  
+}
+
+void moveToolDown(boolean drawbarRequired){
+  Serial.println(TOOL_DOWN_MESSAGE);
+  digitalWrite(LIFT_CYLINDER_PIN, LOW);
+  if (drawbarRequired == true){
+    delay(1000);
+    digitalWrite(CNC_DRAWBAR_PIN, HIGH);
+  }
+  delay(LIFT_CYLINDER_DELAY);
+  if (drawbarRequired == true){
+    digitalWrite(CNC_DRAWBAR_PIN, LOW);
+  }
+  Serial.println(STEP_DONE_MESSAGE);
+}
+
+void moveATCIn(){
+  Serial.println(ATC_IN_MESSAGE);
+  digitalWrite(PIVOT_CYLINDER_PIN, HIGH);
+  delay(PIVOT_CYLINDER_DELAY);
+  Serial.println(STEP_DONE_MESSAGE);
+}
+
+void moveATCOut(){
+  Serial.println(ATC_OUT_MESSAGE);
+  digitalWrite(PIVOT_CYLINDER_PIN, LOW);
+  delay(PIVOT_CYLINDER_DELAY);
+  Serial.println(STEP_DONE_MESSAGE);
+}
