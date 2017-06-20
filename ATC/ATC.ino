@@ -1,10 +1,14 @@
 #define LIFT_CYLINDER_DELAY 5000
 #define PIVOT_CYLINDER_DELAY 10000
+#define WITH_DRAWBAR true
+#define WITHOUT_DRAWBAR false
 
 #define TOOL_UP_MESSAGE "Lifting tool"
 #define TOOL_DOWN_MESSAGE "Lowering tool"
 #define ATC_IN_MESSAGE "Engaging ATC"
 #define ATC_OUT_MESSAGE "Disengaging ATC"
+#define DRAWBAR_ON_MESSAGE "Drawbar Active"
+#define DRAWBAR_OFF_MESSAGE "Drawbar Inactive"
 #define STEP_DONE_MESSAGE "Step Complete"
 
 #define HOME_SENSE_PIN 12
@@ -23,12 +27,10 @@ int testModeActive = 0;
 int currentPosition;
 boolean homed = false;
 boolean toolInCNC = false;
-boolean genevaLocked = true;
-boolean withDrawbar = true;
-boolean withoutDrawbar = false;
+boolean genevaLocked = false;
 boolean automateDrawbar = true;
-int moveClockwise = 1;
-int moveAnticlockwise = 0;
+int moveClockwise = 0;
+int moveAnticlockwise = 1;
 
 int lastLoaded;       // possibly irrelevant
 boolean ATCEngaged;   // possibly N/A
@@ -45,6 +47,7 @@ void setup() {
   pinMode(CNC_DRAWBAR_PIN, OUTPUT);
   pinMode(GENEVA_SENSE_PIN, INPUT);
   pinMode(CNC_LOADED_PIN, INPUT);
+  Serial.println("Starting Tool Changer");
 
   boolean toolInCNC = false;
   toolInCNC = digitalRead(CNC_LOADED_PIN);
@@ -52,6 +55,7 @@ void setup() {
     //insert error message that pauses the software until dealt with
   }
   //homing();
+  Serial.println("Enter Desired Tool");
 }
 void loop() {
   //awaits user input to switch a tool
@@ -67,8 +71,7 @@ void loop() {
     int requestedToolID = 99;
 
     if (testModeActive == 0){
-      Serial.println("Enter Desired Tool");
-      //default menu
+      //default menu options
       switch(incomingByte){
         case 'T':{
           testModeActive = 1;
@@ -114,20 +117,7 @@ void loop() {
       }
     }
     else{
-      Serial.println("Test Menu");
-      Serial.println("1 - Set Current Position to 1");
-      Serial.println("U / D - Move Lift Cylinder Up or Down");
-      Serial.println("I / O - Move ATC In or Out");
-      Serial.println("R / L - Rotate Tool Clockwise or Anticlockwise Once");
-      Serial.print("M - Toggle drawbar automation for testing, currently: ");
-      if (automateDrawbar == true){
-        Serial.println("on");
-      }
-      else{
-        Serial.println("off");
-      }
-      Serial.println("X - Leave Test Menu");
-      //test menu
+      //test menu options
       switch(incomingByte){
         case 'X':{
           testModeActive = 0;
@@ -136,19 +126,19 @@ void loop() {
         }
         case 'U':{
           if (automateDrawbar == true){
-            moveToolUp(withDrawbar);
+            moveToolUp(WITH_DRAWBAR);
           }
           else{
-            moveToolUp(withoutDrawbar);
+            moveToolUp(WITHOUT_DRAWBAR);
           }
           break;
         }
         case 'D':{
           if (automateDrawbar == true){
-            moveToolUp(withDrawbar);
+            moveToolDown(WITH_DRAWBAR);
           }
           else{
-            moveToolUp(withoutDrawbar);
+            moveToolDown(WITHOUT_DRAWBAR);
           }
           break;
         }
@@ -200,6 +190,25 @@ void loop() {
       }
       switchTool(requestedToolID);
     }
+    //here is the last thing to be done as a result of input, I should be able to put the menu spit here
+    if (testModeActive == 0){
+      Serial.println("Enter Desired Tool");
+    }
+    else{ //ie test mode menu
+      Serial.println("Test Menu");
+      Serial.println("1 - Set Current Position to 1");
+      Serial.println("U / D - Move Lift Cylinder Up or Down");
+      Serial.println("I / O - Move ATC In or Out");
+      Serial.println("R / L - Rotate Tool Clockwise or Anticlockwise Once");
+      Serial.print("M - Toggle drawbar automation for testing, currently: ");
+      if (automateDrawbar == true){
+        Serial.println("on");
+      }
+      else{
+        Serial.println("off");
+      }
+      Serial.println("X - Leave Test Menu");
+    }
   }
 }
 
@@ -240,6 +249,9 @@ void switchTool(int reqTool){
   }
   if (reqTool != 0){
     loadTool(reqTool);
+    Serial.print("Tool ID");
+    Serial.print(reqTool);
+    Serial.println(" is now Loaded");
   }
 }
 
@@ -247,9 +259,9 @@ void unloadTool(int reqTool){
   //ask cnc if it's in position and if not make it so
   Serial.print("UNLOADING TOOL ");
   Serial.println(currentPosition);
-  moveToolUp(withoutDrawbar);       //lift tool slot up (no drawbar needed)
+  moveToolUp(WITHOUT_DRAWBAR);      //lift tool slot up (no drawbar needed)
   moveATCIn();                      //pivot atc machine in to engage
-  moveToolDown(withDrawbar);        //lower tool slot down using the drawbar to unload the tool
+  moveToolDown(WITH_DRAWBAR);       //lower tool slot down using the drawbar to unload the tool
   if(reqTool == 0){                 //if required tool is ID 0 then only an unload is required
     moveATCOut();                   //thus pivot atc machine out to disengage
   }
@@ -265,9 +277,9 @@ void loadTool(int reqTool){
   //code missing: if statement to check if PIVOT_CYCLINDER_PIN is already High
   moveATCIn();                    //pivot atc machine in to engage (ideally this will be inside an if statement)
   rotatePath(reqTool);            //rotoate atc via the optimal path to the desired tool
-  moveToolUp(withDrawbar);        //lift tool slot up using the drawbar to load the tool
+  moveToolUp(WITH_DRAWBAR);       //lift tool slot up using the drawbar to load the tool
   moveATCOut();                   //pivot atc machine out to disengage
-  moveToolDown(withoutDrawbar);   //lower tool slot back down (no drawbar needed)
+  moveToolDown(WITHOUT_DRAWBAR);  //lower tool slot back down (no drawbar needed)
   toolInCNC = digitalRead(CNC_LOADED_PIN);
   toolInCNC = true; //manual write for testing
 }
@@ -316,23 +328,28 @@ void rotateMotor(int rotDir, int rotDist){
     digitalWrite(MOTOR_DIRECTION_PIN, LOW);
   }
   Serial.println("Rotating ATC");
-  digitalWrite(MOTOR_SPEED_PIN, HIGH);                        //turn motor on
+  analogWrite(MOTOR_SPEED_PIN, 128);                        //turn motor on
+  boolean seenPinOnFirstLap = false; //used to ignore the first time the sensor sees the pin at the start and only once
   int n = 0;
   while (n != rotDist){                                       //loop until n = rotDir
     genevaLocked = digitalRead(GENEVA_SENSE_PIN);
-    /*if (genevaLocked == true && n == 0){                    //if can see sensor but still on first lap
-      while (genevaLocked == true){                           //loop until can't see the sensor
-        genevaLocked = digitalRead(GENEVA_SENSE_PIN);         //this prevents incrementing prematurely
+    if (genevaLocked != true){                                //IF THE GENEVA SENSOR PIN CAN BE SEEN
+      if (seenPinOnFirstLap == false){                        //&& first time seeing pin (which is on startup)
+        while (genevaLocked != true){                         //loop for as long as the sensor pin can be seen
+          genevaLocked = digitalRead(GENEVA_SENSE_PIN);
+        }                                                     //once sensor can't see pin
+        seenPinOnFirstLap = true;                             //acknowledge that the first pass is done
+        Serial.println("First Pass");
       }
-    }*/
-    if (genevaLocked == true){                                //if can see sensor (any other time)
-      while (genevaLocked == true && (n + 1) != rotDist){     //loop until can't see sensor UNLESS this is last lap
-        genevaLocked = digitalRead(GENEVA_SENSE_PIN);
-        Serial.println("Waiting to clear sensor");
+      else{                                                   //&& not the first time seeing pin (this is now the lap ticks)
+        while (genevaLocked != true && (n + 1) != rotDist){   //loop for as long as the sensor pin can be seen
+          genevaLocked = digitalRead(GENEVA_SENSE_PIN);       //HOWEVER not if this where we are about to stop: ie [n+1=rotDist]
+          Serial.println("Waiting to clear sensor");
+        }                                                     //once sensor can't see pin OR once seen on last lap ready to stop
+        n++;                                                  //increment the loop counter, which will cause a stop on last lap
+        incrementCurrentPosition(rotDir);                     //increment the current position as per the direction rotated
+        Serial.println("Lap Complete");
       }
-      n++;                                                    //having gone past sensor this counts as one lap
-      incrementCurrentPosition(rotDir);                       //increment the current tool position accordingly
-      Serial.println("Lap complete");
     }
   }
   digitalWrite(MOTOR_SPEED_PIN, LOW);                         //turn motor off
@@ -359,12 +376,14 @@ void incrementCurrentPosition(int dir){
 void moveToolUp(boolean drawbarRequired){
   if (drawbarRequired == true){
     digitalWrite(CNC_DRAWBAR_PIN, HIGH);
+    Serial.println(DRAWBAR_ON_MESSAGE);
   }
   Serial.println(TOOL_UP_MESSAGE);
   digitalWrite(LIFT_CYLINDER_PIN, HIGH);
   delay(LIFT_CYLINDER_DELAY);
   if (drawbarRequired == true){
     digitalWrite(CNC_DRAWBAR_PIN, LOW);
+    Serial.println(DRAWBAR_OFF_MESSAGE);
   }
   Serial.println(STEP_DONE_MESSAGE);  
 }
@@ -375,10 +394,12 @@ void moveToolDown(boolean drawbarRequired){
   if (drawbarRequired == true){
     delay(1000);
     digitalWrite(CNC_DRAWBAR_PIN, HIGH);
+    Serial.println(DRAWBAR_ON_MESSAGE);
   }
   delay(LIFT_CYLINDER_DELAY);
   if (drawbarRequired == true){
     digitalWrite(CNC_DRAWBAR_PIN, LOW);
+    Serial.println(DRAWBAR_OFF_MESSAGE);
   }
   Serial.println(STEP_DONE_MESSAGE);
 }
